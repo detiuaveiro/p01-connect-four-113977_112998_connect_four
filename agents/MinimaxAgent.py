@@ -56,6 +56,8 @@ class MinimaxAgent(BaseC4Agent):
 
         for col in self.valid_actions:
             new_bitboard = self.drop_piece(bitboard_me, bitboard_other, col, self.player_id)
+            if self.check_win(new_bitboard):
+                return col  # Immediate win, take it
             score = self.minimax(new_bitboard, bitboard_other, self.DEPTH_SEARCH, False)
             if score > best_score:
                 best_score = score
@@ -63,6 +65,8 @@ class MinimaxAgent(BaseC4Agent):
         return best_choice
     
     def minimax(self, bitboard_me: int, bitboard_other: int, depth: int, maximizing_player: bool) -> int:
+        if self.check_win(bitboard_other):
+            return -1000  # Opponent wins, bad for us
         if depth == 0:
             return self.evaluate_board(bitboard_me, bitboard_other)
 
