@@ -67,6 +67,8 @@ class MinimaxAgent(BaseC4Agent):
     def minimax(self, bitboard_me: int, bitboard_other: int, depth: int, maximizing_player: bool) -> int:
         if self.check_win(bitboard_other):
             return -1000  # Opponent wins, bad for us
+        if self.check_win(bitboard_me):
+            return 5 + depth  # Slight bonus for winning position
         if depth == 0:
             return self.evaluate_board(bitboard_me, bitboard_other)
 
