@@ -1,242 +1,252 @@
 import asyncio
-import random
-import math
-from typing import List, Optional
+import logging
 import os
 import sys
+from typing import Any, Dict, List, Optional
+import random
+import time
+import atexit
+import matplotlib.pyplot as plt
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agents.base_agent_train import BaseC4Agent
 
-
 ROWS = 6
 COLS = 7
-CENTER_COL = 3
+DEPTH = 6
 
 
-class AlphaBetaAgent(BaseC4Agent):
-    def __init__(self):
-        super().__init__()
-        self.DEPTH = 5
+class MinimaxC4Agent(BaseC4Agent):
 
-    async def deliberate(self, valid_actions: List[int], data) -> Optional[int]:
-        await asyncio.sleep(0.2)
+    def __init__(self, server_uri: Optional[str] = None, depth: int = DEPTH) -> None:
+        super().__init__(server_uri)
+        self.depth = depth
+        self.opponent_id: Optional[int] = None
 
-        board = data["board"]
-        player = self.player_id
-        opponent = 2 if player == 1 else 1
+        # Métricas por jogada
+        self.move_times: List[float] = []
+        self.move_nodes: List[int] = []
+        self.current_nodes: int = 0
 
-        best_col = self.choose_move(board, valid_actions, player, opponent)
-        return best_col
+        # Tenta gerar o gráfico quando o programa terminar normalmente
+        atexit.register(self.save_performance_graph)
 
-    def choose_move(self, board, valid_actions, player, opponent):
-        best_score = -math.inf
+    async def deliberate(self, valid_actions: List[int], data: Dict[str, Any]) -> Optional[int]:
+        """
+        Args:
+            valid_actions: A list of valid column indices where a piece can be dropped.
+
+        Returns:
+            The chosen column index.
+        """
+
+        if not valid_actions:
+            return None
+
+        board = data.get("board")
+
+        if board is None or self.player_id is None:
+            return random.choice(valid_actions)
+
+        self.opponent_id = 2 if self.player_id == 1 else 1
+
+        # Cópia para evitar mutações acidentais durante a busca
+        board_copy = [row[:] for row in board]
+
+        self.current_nodes = 0
+        start_time = time.perf_counter()
+
+        col = await asyncio.to_thread(self.choose_move, board_copy, valid_actions)
+
+        elapsed_time = time.perf_counter() - start_time
+        self.move_times.append(elapsed_time)
+        self.move_nodes.append(self.current_nodes)
+
+        logging.info(
+            "Jogada %d | coluna=%s | tempo=%.4fs | nós pesquisados=%d",
+            len(self.move_times),
+            col,
+            elapsed_time,
+            self.current_nodes,
+        )
+
+        return col
+
+    def choose_move(self, board: List[List[int]], valid_actions: List[int]) -> int:
         best_col = random.choice(valid_actions)
+        best_score = float("-inf")
 
-        # ordenar jogadas: centro primeiro
-        ordered_moves = self.order_moves(valid_actions)
-
-        for col in ordered_moves:
-            temp_board = self.copy_board(board)
-            self.drop_piece(temp_board, col, player)
-
-            score = self.minimax(
-                temp_board,
-                self.DEPTH - 1,
-                -math.inf,
-                math.inf,
-                False,
-                player,
-                opponent
-            )
-
+        for col in self._ordered_columns(valid_actions):
+            b = self._drop(board, col, self.player_id)
+            score = self._minimax(b, self.depth - 1, float("-inf"), float("inf"), False)
             if score > best_score:
                 best_score = score
                 best_col = col
 
         return best_col
 
-    def minimax(self, board, depth, alpha, beta, maximizing, player, opponent):
-        valid_moves = self.get_valid_moves(board)
+    def _minimax(self, board: List[List[int]], depth: int, alpha: float, beta: float, maximizing: bool) -> float:
+        # Conta cada chamada ao minimax como um nó pesquisado
+        self.current_nodes += 1
 
-        if self.check_win(board, player):
-            return 1000000 + depth
+        if self._check_win(board, self.player_id):
+            return 1_000_000 + depth
+        if self._check_win(board, self.opponent_id):
+            return -(1_000_000 + depth)
 
-        if self.check_win(board, opponent):
-            return -1000000 - depth
-
-        if depth == 0 or not valid_moves:
-            return self.evaluate_board(board, player, opponent)
-
-        ordered_moves = self.order_moves(valid_moves)
+        valid = [c for c in range(COLS) if board[0][c] == 0]
+        if not valid or depth == 0:
+            return self.evaluate_board(board)
 
         if maximizing:
-            value = -math.inf
-
-            for col in ordered_moves:
-                temp_board = self.copy_board(board)
-                self.drop_piece(temp_board, col, player)
-
-                value = max(
-                    value,
-                    self.minimax(
-                        temp_board,
-                        depth - 1,
-                        alpha,
-                        beta,
-                        False,
-                        player,
-                        opponent
-                    )
-                )
-
+            value = float("-inf")
+            for col in self._ordered_columns(valid):
+                b = self._drop(board, col, self.player_id)
+                value = max(value, self._minimax(b, depth - 1, alpha, beta, False))
                 alpha = max(alpha, value)
-
                 if alpha >= beta:
                     break
-
             return value
 
-        else:
-            value = math.inf
+        value = float("inf")
+        for col in self._ordered_columns(valid):
+            b = self._drop(board, col, self.opponent_id)
+            value = min(value, self._minimax(b, depth - 1, alpha, beta, True))
+            beta = min(beta, value)
+            if alpha >= beta:
+                break
+        return value
 
-            for col in ordered_moves:
-                temp_board = self.copy_board(board)
-                self.drop_piece(temp_board, col, opponent)
-
-                value = min(
-                    value,
-                    self.minimax(
-                        temp_board,
-                        depth - 1,
-                        alpha,
-                        beta,
-                        True,
-                        player,
-                        opponent
-                    )
-                )
-
-                beta = min(beta, value)
-
-                if alpha >= beta:
-                    break
-
-            return value
-
-    def evaluate_board(self, board, player, opponent):
+    def evaluate_board(self, board: List[List[int]]) -> int:
         score = 0
 
-        # valorizar coluna central
-        center_count = 0
-        for row in range(ROWS):
-            if board[row][CENTER_COL] == player:
-                center_count += 1
+        # Prefer centre column
+        centre = [board[r][COLS // 2] for r in range(ROWS)]
+        score += centre.count(self.player_id) * 4
 
-        score += center_count * 6
+        # Horizontal windows
+        for r in range(ROWS):
+            for c in range(COLS - 3):
+                window = [board[r][c + i] for i in range(4)]
+                score += self._score_window(window)
 
-        # avaliar todas as janelas de 4
-        windows = self.get_all_windows(board)
+        # Vertical windows
+        for c in range(COLS):
+            for r in range(ROWS - 3):
+                window = [board[r + i][c] for i in range(4)]
+                score += self._score_window(window)
 
-        for window in windows:
-            score += self.evaluate_window(window, player, opponent)
+        # Diagonal ↘
+        for r in range(ROWS - 3):
+            for c in range(COLS - 3):
+                window = [board[r + i][c + i] for i in range(4)]
+                score += self._score_window(window)
+
+        # Diagonal ↗
+        for r in range(3, ROWS):
+            for c in range(COLS - 3):
+                window = [board[r - i][c + i] for i in range(4)]
+                score += self._score_window(window)
 
         return score
 
-    def evaluate_window(self, window, player, opponent):
-        score = 0
+    def _score_window(self, window: List[int]) -> int:
+        me = window.count(self.player_id)
+        opp = window.count(self.opponent_id)
+        empty = window.count(0)
 
-        player_count = window.count(player)
-        opponent_count = window.count(opponent)
-        empty_count = window.count(0)
+        if me == 4:
+            return 100
+        if me == 3 and empty == 1:
+            return 5
+        if me == 2 and empty == 2:
+            return 2
+        if opp == 4:
+            return -150
+        if opp == 3 and empty == 1:
+            return -4
+        return 0
 
-        # ofensivo
-        if player_count == 4:
-            score += 100000
-        elif player_count == 3 and empty_count == 1:
-            score += 100
-        elif player_count == 2 and empty_count == 2:
-            score += 10
+    def _drop(self, board: List[List[int]], col: int, player: int) -> List[List[int]]:
+        new_board = [row[:] for row in board]
+        for r in range(ROWS - 1, -1, -1):
+            if new_board[r][col] == 0:
+                new_board[r][col] = player
+                break
+        return new_board
 
-        # defensivo
-        if opponent_count == 4:
-            score -= 100000
-        elif opponent_count == 3 and empty_count == 1:
-            score -= 150
-        elif opponent_count == 2 and empty_count == 2:
-            score -= 15
-
-        return score
-
-    def get_all_windows(self, board):
-        windows = []
-
-        # horizontais
-        for row in range(ROWS):
-            for col in range(COLS - 3):
-                windows.append([
-                    board[row][col],
-                    board[row][col + 1],
-                    board[row][col + 2],
-                    board[row][col + 3]
-                ])
-
-        # verticais
-        for row in range(ROWS - 3):
-            for col in range(COLS):
-                windows.append([
-                    board[row][col],
-                    board[row + 1][col],
-                    board[row + 2][col],
-                    board[row + 3][col]
-                ])
-
-        # diagonais descendentes
-        for row in range(ROWS - 3):
-            for col in range(COLS - 3):
-                windows.append([
-                    board[row][col],
-                    board[row + 1][col + 1],
-                    board[row + 2][col + 2],
-                    board[row + 3][col + 3]
-                ])
-
-        # diagonais ascendentes
-        for row in range(3, ROWS):
-            for col in range(COLS - 3):
-                windows.append([
-                    board[row][col],
-                    board[row - 1][col + 1],
-                    board[row - 2][col + 2],
-                    board[row - 3][col + 3]
-                ])
-
-        return windows
-
-    def check_win(self, board, player):
-        for window in self.get_all_windows(board):
-            if window.count(player) == 4:
-                return True
+    def _check_win(self, board: List[List[int]], player: int) -> bool:
+        """Returns True if `player` has four in a row."""
+        # Horizontal
+        for r in range(ROWS):
+            for c in range(COLS - 3):
+                if all(board[r][c + i] == player for i in range(4)):
+                    return True
+        # Vertical
+        for c in range(COLS):
+            for r in range(ROWS - 3):
+                if all(board[r + i][c] == player for i in range(4)):
+                    return True
+        # Diagonal ↘
+        for r in range(ROWS - 3):
+            for c in range(COLS - 3):
+                if all(board[r + i][c + i] == player for i in range(4)):
+                    return True
+        # Diagonal ↗
+        for r in range(3, ROWS):
+            for c in range(COLS - 3):
+                if all(board[r - i][c + i] == player for i in range(4)):
+                    return True
         return False
 
-    def get_valid_moves(self, board):
-        return [col for col in range(COLS) if board[0][col] == 0]
+    @staticmethod
+    def _ordered_columns(valid: List[int]) -> List[int]:
+        """Explores centre columns first — improves Alpha-Beta pruning efficiency."""
+        preferred = [3, 2, 4, 1, 5, 0, 6]
+        return [c for c in preferred if c in valid]
 
-    def drop_piece(self, board, col, player):
-        for row in range(ROWS - 1, -1, -1):
-            if board[row][col] == 0:
-                board[row][col] = player
-                return
+    def save_performance_graph(self, filename: str = "minimax_original_performance.png") -> None:
+        """Gera um gráfico com o tempo e os nós pesquisados por jogada."""
+        if not self.move_times or not self.move_nodes:
+            return
 
-    def copy_board(self, board):
-        return [row[:] for row in board]
+        if plt is None:
+            logging.warning(
+                "matplotlib não está instalado. Não foi possível gerar o gráfico de desempenho. "
+                "Instala com: pip install matplotlib"
+            )
+            return
 
-    def order_moves(self, valid_moves):
-        preferred_order = [3, 2, 4, 1, 5, 0, 6]
-        return [col for col in preferred_order if col in valid_moves]
+        moves = list(range(1, len(self.move_times) + 1))
+
+        fig, ax1 = plt.subplots(figsize=(10, 6))
+
+        ax1.set_xlabel("Jogada")
+        ax1.set_ylabel("Tempo por jogada (s)")
+        ax1.plot(moves, self.move_times, marker="o", label="Tempo por jogada (s)")
+        ax1.tick_params(axis="y")
+
+        ax2 = ax1.twinx()
+        ax2.set_ylabel("Nós pesquisados")
+        ax2.plot(moves, self.move_nodes, marker="x", linestyle="--", label="Nós pesquisados")
+        ax2.tick_params(axis="y")
+
+        plt.title("Desempenho do Minimax Original por Jogada")
+        fig.tight_layout()
+        plt.savefig(filename, dpi=300)
+        plt.close(fig)
+
+        logging.info("Gráfico de desempenho guardado em: %s", filename)
 
 
 if __name__ == "__main__":
-    agent = AlphaBetaAgent()
-    asyncio.run(agent.run())
+    logging.basicConfig(level=logging.INFO)
+    agent = MinimaxC4Agent()
+    logging.info("Starting Original Minimax Connect 4 Agent with metrics (depth=%d)...", agent.depth)
+
+    try:
+        asyncio.run(agent.run())
+    finally:
+        # Garante que o gráfico é tentado no fim, mesmo em caso de interrupção/erro.
+        agent.save_performance_graph()
