@@ -76,7 +76,7 @@ Performance durante um jogo completo com Transposition Table vazia.
   <tr>
     <td width="50%" style="padding-right: 10px;" valign="top">
       <img
-        src="agents/minimax_alpha_beta_1jogada.png"
+        src="agents/images/minimax_alpha_beta_1jogada.png"
         alt="Minimax Alpha Beta, 1 Jogo"
         width="100%"
         style="height: auto;"
@@ -85,7 +85,7 @@ Performance durante um jogo completo com Transposition Table vazia.
     </td>
     <td width="50%" style="padding-left: 10px;" valign="top">
       <img
-        src="agents/minimax_tt_zobrist_1jogada.png"
+        src="agents/images/minimax_tt_zobrist_1jogada.png"
         alt="Minimax Alpha-Beta TT Zobrist, 1 Jogo"
         width="100%"
         style="height: auto;"
@@ -101,7 +101,7 @@ Performance durante 10 jogos semelhantes.
   <tr>
     <td width="50%" style="padding-right: 10px;" valign="top">
       <img
-        src="agents/minimax_alpha_beta.png"
+        src="agents/images/minimax_alpha_beta.png"
         alt="Minimax Alpha-Beta, 10 Jogos"
         width="100%"
         style="height: auto;"
@@ -110,7 +110,7 @@ Performance durante 10 jogos semelhantes.
     </td>
     <td width="50%" style="padding-left: 10px;" valign="top">
       <img
-        src="agents/minimax_tt_zobrist.png"
+        src="agents/images/minimax_tt_zobrist.png"
         alt="Minimax Alpha-Beta TT Zobrist, 10 Jogos"
         width="100%"
         style="height: auto;"
@@ -159,7 +159,9 @@ A “simulação” é iniciada utilizando o Docker Compose, que arranca o servi
 - `frontend/`: contém o visualizador (HTML, JS, CSS) para monitorizar o estado do jogo.
 - `agents/`: contém os agentes do Connect Four:
     - `base_agent.py`: a classe base abstrata para os agentes.
+    - `base_agent_train.py`: classe base utilizada para no desenvolvimento de agentes.
     - `dummy_agent.py`: um agente automatizado simples que faz jogadas aleatórias.
+    - `alpha_beta.py`: agente inicial que utiliza o algoritmo Minimax com poda Alpha-Beta para escolher jogadas.
     - `minimax_agent_tt_zobrist.py`: um agente que utiliza minimax com alpha-beta pruning e otimizações com Tabela de Transposição e Zobrist Hashing.
     - `manual_agent.py`: um agente que permite interação manual do jogador através do terminal.
 - `compose.yml`: configuração do Docker Compose para executar o backend e o frontend.
