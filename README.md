@@ -1,73 +1,175 @@
-[![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/ovfM0qtv)
 # <img src="frontend/favicon.svg" alt="logo" width="128" height="128" align="middle"> SI2 - Connect Four
 
-Connect Four is a classic two-player connection board game in which the players choose a color and then take turns dropping colored discs into a seven-column, six-row vertically suspended grid. The pieces fall straight down, occupying the lowest available space within the column. The objective of the game is to be the first to form a horizontal, vertical, or diagonal line of four of one's own discs.
+## Estratégia do Agente
 
-In this project, we focus on developing autonomous agents that can play Connect Four against each other or against a human player. The game state is managed by a central server that communicates with the agents and a frontend viewer via WebSockets. Each agent receives the current board state and must decide the best column to drop their disc.
+Numa fase inicial, foi adotada uma estratégia baseada no algoritmo **Minimax com Alpha-Beta Pruning**. Esta abordagem já permitia ao agente tomar decisões competitivas e vencer partidas contra jogadores humanos em modo manual.
 
-## Game Rules
+O algoritmo Minimax simula possíveis jogadas futuras, alternando entre dois tipos de decisão: maximizar a vantagem do nosso agente e minimizar a vantagem do adversário. Assim, o agente tenta escolher a jogada que conduz ao melhor resultado possível, assumindo que o adversário também joga da forma mais racional possível.
 
-The game is played on a grid with $R=6$ rows and $C=7$ columns. Two players, Player 1 and Player 2, take turns dropping their pieces.
-- **State**: The world state is represented by a 2D grid of size $6 \times 7$, where 0 represents an empty cell, 1 represents a disc from Player 1, and 2 represents a disc from Player 2.
-- **Actions**: A player can choose a column index $c \in \{0, 1, \dots, 6\}$ that is not yet full (i.e., the top row of that column is 0).
-- **Gravity**: When a player chooses a column, the piece falls to the lowest available row $r$ in that column.
-- **Win Condition**: A player wins if they have 4 of their discs in a row (horizontal, vertical, or diagonal).
-- **Draw**: The game ends in a draw if the board is full and no player has won.
+Para melhorar o desempenho do Minimax, foi aplicado **Alpha-Beta Pruning**. Esta técnica permite cortar ramos da árvore de pesquisa que já não têm potencial para alterar a decisão final. Ou seja, quando o algoritmo percebe que uma determinada sequência de jogadas não será melhor do que outra já analisada, deixa de explorar esse caminho. Isto reduz significativamente o número de estados analisados, mantendo a mesma decisão que seria obtida com o Minimax completo.
 
-## Setup
+Para que o algoritmo Minimax consiga escolher uma jogada quando ainda não chegou a um estado terminal, foi definida uma **função heurística de avaliação**. Esta função atribui uma pontuação ao estado atual do tabuleiro, indicando se a posição é mais favorável para o nosso agente ou para o adversário.
 
-The "simulation" is launched using Docker Compose, which starts the backend server and the frontend viewer.
+A heurística analisa o tabuleiro através de janelas de quatro posições, uma vez que o objetivo do Connect Four é formar uma sequência de quatro peças consecutivas. Estas janelas são avaliadas em todas as direções possíveis: horizontal, vertical, diagonal descendente e diagonal ascendente.
+Para cada janela de quatro posições, é atribuída uma pontuação de acordo com o número de peças do agente, peças do adversário e espaços vazios.
 
-1.  **Start the environment**:
+A lógica usada foi a seguinte:
+
+```python
+if me == 4:
+    return 100
+if me == 3 and empty == 1:
+    return 5
+if me == 2 and empty == 2:
+    return 2
+if opp == 4:
+    return -150
+if opp == 3 and empty == 1:
+    return -4
+return 0
+```
+Inicialmente, o agente utilizava uma profundidade inferior, mas posteriormente aumentámos a profundidade de pesquisa para **6**. Este aumento permitiu ao agente antecipar melhor as jogadas futuras e tomar decisões mais estratégicas. No entanto, também fez crescer bastante o número de nós pesquisados, aumentando o tempo necessário para escolher cada jogada. Por esse motivo, tornou-se necessário introduzir técnicas de otimização.
+
+## Otimização com Transposition Table e Zobrist Hashing
+
+Para otimizar a pesquisa, foi implementada uma **Transposition Table** em conjunto com **Zobrist Hashing**.
+
+A **Transposition Table** funciona como uma memória/cache de estados já analisados. Durante a pesquisa, é possível chegar ao mesmo estado do tabuleiro através de diferentes ordens de jogadas. Sem esta tabela, o agente poderia voltar a avaliar repetidamente posições que já tinham sido calculadas anteriormente. Com a Transposition Table, quando o agente encontra um estado já analisado, pode reutilizar o valor guardado, reduzindo o número de cálculos necessários.
+
+Para identificar rapidamente cada estado do tabuleiro, foi utilizado **Zobrist Hashing**. Esta técnica atribui números aleatórios de 64 bits a cada combinação possível entre posição do tabuleiro e jogador. No caso do Connect Four, isto significa gerar valores para cada linha, coluna e jogador possível. O hash de um tabuleiro é calculado combinando, através da operação XOR, os valores correspondentes às peças atualmente presentes no tabuleiro.
+
+A principal vantagem desta abordagem é que o hash pode ser atualizado de forma incremental. Quando uma peça é colocada numa coluna, não é necessário recalcular o hash do tabuleiro inteiro; basta aplicar XOR com o valor associado à nova peça colocada. Isto torna a identificação dos estados muito mais eficiente.
+
+De forma simplificada, a lógica usada foi a seguinte:
+
+1. Criar uma tabela Zobrist com valores aleatórios para cada posição e jogador.
+2. Calcular o hash inicial do tabuleiro atual.
+3. Sempre que uma jogada é simulada, atualizar o hash com XOR.
+4. Antes de analisar um estado no Minimax, verificar se o seu hash já existe na Transposition Table.
+5. Se existir uma entrada válida, reutilizar o valor armazenado.
+6. Caso contrário, avaliar normalmente o estado e guardar o resultado na tabela.
+
+Cada entrada da Transposition Table guarda informação como:
+
+- profundidade a que o estado foi analisado;
+- valor da avaliação;
+- tipo de valor armazenado;
+- melhor coluna encontrada para esse estado.
+
+A profundidade é importante porque um estado analisado com maior profundidade contém mais informação estratégica do que um estado analisado superficialmente. Por isso, apenas são reutilizadas entradas calculadas com profundidade igual ou superior à profundidade atualmente necessária.
+
+Também foram utilizadas flags para indicar o tipo de valor guardado:
+
+- `EXACT`: o valor guardado corresponde à avaliação exata do estado;
+- `LOWERBOUND`: o valor representa um limite inferior;
+- `UPPERBOUND`: o valor representa um limite superior.
+
+Estas flags são úteis porque, devido ao Alpha-Beta Pruning, nem sempre o valor obtido para um estado é exato. Em alguns casos, o algoritmo apenas sabe que o valor é pelo menos ou no máximo determinado valor.
+
+Para avaliar o impacto das otimizações, foram recolhidas métricas durante a execução do agente. 
+
+## Métricas
+
+Performance durante um jogo completo com Transposition Table vazia.
+
+<table width="100%">
+  <tr>
+    <td width="50%" style="padding-right: 10px;" valign="top">
+      <img
+        src="agents/minimax_alpha_beta_1jogada.png"
+        alt="Minimax Alpha Beta, 1 Jogo"
+        width="100%"
+        style="height: auto;"
+      />
+      <p align="center"><em>Minimax Alpha Beta</em></p>
+    </td>
+    <td width="50%" style="padding-left: 10px;" valign="top">
+      <img
+        src="agents/minimax_tt_zobrist_1jogada.png"
+        alt="Minimax Alpha-Beta TT Zobrist, 1 Jogo"
+        width="100%"
+        style="height: auto;"
+      />
+      <p align="center"><em>Minimax TT Zobrist</em></p>
+    </td>
+  </tr>
+</table>
+
+Performance durante 10 jogos semelhantes.
+
+<table width="100%">
+  <tr>
+    <td width="50%" style="padding-right: 10px;" valign="top">
+      <img
+        src="agents/minimax_alpha_beta.png"
+        alt="Minimax Alpha-Beta, 10 Jogos"
+        width="100%"
+        style="height: auto;"
+      />
+      <p align="center"><em>Minimax Alpha Beta</em></p>
+    </td>
+    <td width="50%" style="padding-left: 10px;" valign="top">
+      <img
+        src="agents/minimax_tt_zobrist.png"
+        alt="Minimax Alpha-Beta TT Zobrist, 10 Jogos"
+        width="100%"
+        style="height: auto;"
+      />
+      <p align="center"><em>Minimax TT Zobrist</em></p>
+    </td>
+  </tr>
+</table>
+
+Verifica-se que ao preencher a Transposition Table as jogadas ideais não necessitam de ser recalculadas. 
+
+## Configuração
+
+A “simulação” é iniciada utilizando o Docker Compose, que arranca o servidor backend e o visualizador frontend.
+
+1. **Iniciar o ambiente**:
     ```bash
     docker compose up
     ```
-    The frontend viewer will be available at `http://localhost:8080`.
+    O visualizador frontend fica disponível em `http://localhost:8080`.
 
-2.  **Run Agents**:
-    Create a virtual environment and install the dependencies:
+2. **Executar os Agentes**:
+    Crie um ambiente virtual e instale as dependências:
     ```bash
     python3 -m venv venv
     source venv/bin/activate
     pip install -r requirements.txt
     ```
-    Execute the agents locally:
+
+    Execute os agentes localmente:
     ```bash
     python agents/dummy_agent.py
     ```
-    or
+    ou
     ```bash
     python agents/manual_agent.py
     ```
+    ou
+    ```bash
+    python agents/minimax_agent_tt_zobrist.py
+    ```
 
-## Project Structure
+## Estrutura do Projeto
 
-- `backend/`: contains the server-side Python code (`server.py`) and its `Dockerfile`. The server manages the game state, scores, and communication.
-- `frontend/`: contains the viewer (HTML, JS, CSS) to monitor the game state.
-- `agents/`: contains the Connect Four agents:
-    - `base_agent.py`: the abstract base class for agents.
-    - `dummy_agent.py`: a simple automated agent that makes random moves.
-    - `manual_agent.py`: an agent that allows manual player interaction via the terminal.
-- `compose.yml`: Docker Compose configuration to run the backend and frontend.
+- `backend/`: contém o código Python do lado do servidor (`server.py`) e o respetivo `Dockerfile`. O servidor gere o estado do jogo, as pontuações e a comunicação.
+- `frontend/`: contém o visualizador (HTML, JS, CSS) para monitorizar o estado do jogo.
+- `agents/`: contém os agentes do Connect Four:
+    - `base_agent.py`: a classe base abstrata para os agentes.
+    - `dummy_agent.py`: um agente automatizado simples que faz jogadas aleatórias.
+    - `minimax_agent_tt_zobrist.py`: um agente que utiliza minimax com alpha-beta pruning e otimizações com Tabela de Transposição e Zobrist Hashing.
+    - `manual_agent.py`: um agente que permite interação manual do jogador através do terminal.
+- `compose.yml`: configuração do Docker Compose para executar o backend e o frontend.
 
-## Development
+## Autores
+Alunos:
+* **Alexandra Alves** - 112998
+* **Rodrigo Bio** - 113977
 
-To develop a new agent, you should inherit from the `BaseC4Agent` class and implement the `deliberate` method.
-
-```python
-from agents.base_agent import BaseC4Agent
-import random
-
-class MyAgent(BaseC4Agent):
-    async def deliberate(self, valid_actions):
-        # Your logic here
-        return random.choice(valid_actions)
-```
-
-For more details on the API, please refer to the [documentation](https://mariolpantunes.github.io/si2-connect-four/).
-
-## Authors
-
+Baseado no código desenvolvido por:
 * **Mário Antunes** - [mariolpantunes](https://github.com/mariolpantunes)
 
 ## License

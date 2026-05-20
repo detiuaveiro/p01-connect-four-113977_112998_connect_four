@@ -66,6 +66,56 @@ Estas flags são úteis porque, devido ao Alpha-Beta Pruning, nem sempre o valor
 
 Para avaliar o impacto das otimizações, foram recolhidas métricas durante a execução do agente. 
 
-**Grafico PARA 170 JOGADAS DOS DOIS**
-**Grafico DE 1 JOGADAS DOS DOIS**
+## Métricas
 
+Performance durante um jogo completo com Transposition Table vazia.
+
+<table width="100%">
+  <tr>
+    <td width="50%" style="padding-right: 10px;" valign="top">
+      <img
+        src="agents/minimax_alpha_beta_1jogada.png"
+        alt="Minimax Alpha Beta"
+        width="100%"
+        style="height: auto;"
+      />
+      <p align="center"><em>Minimax Alpha Beta</em></p>
+    </td>
+    <td width="50%" style="padding-left: 10px;" valign="top">
+      <img
+        src="agents/minimax_tt_zobrist_1jogada.png"
+        alt="Minimax TT Zobrist"
+        width="100%"
+        style="height: auto;"
+      />
+      <p align="center"><em>Minimax TT Zobrist</em></p>
+    </td>
+  </tr>
+</table>
+
+Performance durante 10 jogos semelhantes.
+
+<table width="100%">
+  <tr>
+    <td width="50%" style="padding-right: 10px;" valign="top">
+      <img
+        src="agents/minimax_alpha_beta.png"
+        alt="Minimax Alpha Beta"
+        width="100%"
+        style="height: auto;"
+      />
+      <p align="center"><em>Minimax Alpha Beta</em></p>
+    </td>
+    <td width="50%" style="padding-left: 10px;" valign="top">
+      <img
+        src="agents/minimax_tt_zobrist.png"
+        alt="Minimax TT Zobrist"
+        width="100%"
+        style="height: auto;"
+      />
+      <p align="center"><em>Minimax TT Zobrist</em></p>
+    </td>
+  </tr>
+</table>
+
+Verifica-se que ao preencher a Transposition Table as jogadas ideais não necessitam de ser recalculadas. 
